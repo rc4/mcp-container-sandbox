@@ -3,5 +3,14 @@
 # builds native bindings. Without these, pnpm 11+ aborts the install with
 # ERR_PNPM_IGNORED_BUILDS.
 allowBuilds:
+  dprint: true
   esbuild: true
   workerd: true
+  core-js-pure: false
+
+minimumReleaseAge: 540
+# Our own package; exempt so new releases can be used immediately.
+minimumReleaseAgeExclude:
+  - kysely-cloudflare
+trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 14400

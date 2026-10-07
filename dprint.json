@@ -1,0 +1,20 @@
+{
+  "typescript": {
+    "quoteStyle": "preferSingle",
+    "quoteProps": "consistent"
+  },
+  "json": {},
+  "markdown": {
+    "textWrap": "maintainAndWrap"
+  },
+  "dockerfile": {},
+  "yaml": {},
+  "excludes": ["**/node_modules", "**/*-lock.json", "pnpm-lock.yaml", "worker-configuration.d.ts"],
+  "plugins": [
+    "npm:@dprint/typescript@0.96.1",
+    "npm:@dprint/json@0.25.2",
+    "npm:@dprint/markdown@0.26.0",
+    "npm:@dprint/dockerfile@0.7.0",
+    "npm:dprint-plugin-yaml@0.6.0"
+  ]
+}

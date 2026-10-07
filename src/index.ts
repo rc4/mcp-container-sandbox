@@ -1,18 +1,46 @@
 /**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
+ * Worker entry point. `/mcp` is a stateless MCP endpoint that requires a bearer token, and
+ * `/files/…` serves signed artifact links, which carry their own authorization. The classes
+ * that wrangler.jsonc binds are re-exported here.
  */
+import { createMcpHandler } from 'agents/mcp/server';
+import { authenticate, parseTokens } from './auth';
+import { handleLink, isLinkRequest } from './links';
+import { createServer } from './mcp';
+
+export { DirectoryBackupGateway } from '@cloudflare/sandbox';
+export { SandboxRegistry } from './registry';
+export { Sandbox } from './sandbox';
+export { NetworkSinkhole } from './sinkhole';
 
 export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		return new Response("Hello World!");
-	},
+  async fetch(request, env, ctx): Promise<Response> {
+    const url = new URL(request.url);
+    if (isLinkRequest(url)) {
+      // The signature authenticates the request; no bearer token is involved.
+      return handleLink(request, env);
+    }
+    if (url.pathname !== '/mcp') {
+      return new Response(url.pathname === '/' ? 'MCP endpoint: /mcp\n' : 'Not found\n', {
+        status: url.pathname === '/' ? 200 : 404,
+      });
+    }
+
+    // CORS preflights carry no credentials; the handler answers them without touching sandboxes.
+    let principal = '';
+    if (request.method !== 'OPTIONS') {
+      const found = await authenticate(request, parseTokens(env.MCP_TOKENS));
+      if (!found) {
+        return new Response('Unauthorized\n', { status: 401, headers: { 'WWW-Authenticate': 'Bearer' } });
+      }
+      principal = found;
+    }
+
+    const allowedHostnames = env.ALLOWED_HOSTNAMES.split(',').map((h) => h.trim()).filter(Boolean);
+    // An empty list would reject every host; leave it out to keep the localhost/workers.dev default.
+    return createMcpHandler(
+      () => createServer(env, principal, url.origin),
+      allowedHostnames.length > 0 ? { allowedHostnames } : {},
+    )(request, env, ctx);
+  },
 } satisfies ExportedHandler<Env>;

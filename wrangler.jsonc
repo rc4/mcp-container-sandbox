@@ -1,42 +1,75 @@
-/**
- * For more details on how to configure Wrangler, refer to:
- * https://developers.cloudflare.com/workers/wrangler/configuration/
- */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "mcp-container-sandbox",
-	"main": "src/index.ts",
-	"compatibility_date": "2026-10-01",
-	"observability": {
-		"enabled": true
-	},
-	"upload_source_maps": true
-	/**
-	 * Smart Placement
-	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
-	 */
-	// "placement": {  "mode": "smart" }
-	/**
-	 * Bindings
-	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
-	 * databases, object storage, AI inference, real-time communication and more.
-	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
-	 */
-	/**
-	 * Environment Variables
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
-	 * Note: Use secrets to store sensitive data.
-	 * https://developers.cloudflare.com/workers/configuration/secrets/
-	 */
-	// "vars": {  "MY_VARIABLE": "production_value" }
-	/**
-	 * Static Assets
-	 * https://developers.cloudflare.com/workers/static-assets/binding/
-	 */
-	// "assets": {  "directory": "./public/",  "binding": "ASSETS" }
-	/**
-	 * Service Bindings (communicate between multiple Workers)
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
-	 */
-	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mcp-container-sandbox",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // @cloudflare/sandbox reads Linux error names through node:os.
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "upload_source_maps": true,
+  /**
+   * Containers
+   * The `durable_object` scheduling policy lets each Sandbox Durable Object pick its image,
+   * instance size, network mode and snapshot at start time.
+   * https://developers.cloudflare.com/containers/configuration/scheduling-policy/
+   */
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "analysis": {
+          "dockerfile": "./container/Dockerfile"
+        }
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SANDBOX",
+        "class_name": "Sandbox"
+      },
+      {
+        "name": "REGISTRY",
+        "class_name": "SandboxRegistry"
+      }
+    ]
+  },
+  "exports": {
+    "Sandbox": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "SandboxRegistry": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  /**
+   * R2 holds long-lived directory backups (`backups/`) and exported files (`artifacts/`)
+   */
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "mcp-container-sandbox"
+    }
+  ],
+  "vars": {
+    // Comma-separated hostnames the MCP endpoint answers on, in addition to localhost and
+    // workers.dev. Set this when serving from a custom domain.
+    "ALLOWED_HOSTNAMES": ""
+  },
+  "secrets": {
+    // MCP_TOKENS: comma-separated `principal:token` pairs. Each principal gets its own sandboxes.
+    // LINK_SIGNING_KEY: at least 32 random characters; signs artifact download/upload links.
+    "required": [
+      "MCP_TOKENS",
+      "LINK_SIGNING_KEY"
+    ]
+  }
 }

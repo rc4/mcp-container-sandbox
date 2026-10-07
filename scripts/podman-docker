@@ -1,0 +1,46 @@
+#!/bin/bash
+# Lets wrangler build container images with Podman instead of Docker:
+#
+#   WRANGLER_DOCKER_BIN="$PWD/scripts/podman-docker" pnpm run deploy
+#
+# Two differences from Docker need handling:
+#
+# - build: wrangler runs `docker build --provenance=false -f - <context>`. Podman has no
+#   --provenance flag and does not read a Dockerfile from stdin, so this drops the flag and spools
+#   stdin to a file.
+# - push: wrangler takes the image digest from the local image (RepoDigests) and asks Cloudflare
+#   for exactly that digest after pushing. `podman push` compresses the layers on the way out,
+#   which changes the digest, so Cloudflare reports "The image is invalid or does not exist".
+#   skopeo with --preserve-digests uploads the manifest unchanged. It reads the credentials that
+#   wrangler's `docker login` stored for Podman.
+#
+# Everything else (login, tag, image inspect, ...) goes to Podman unchanged.
+set -euo pipefail
+
+if [ "${1:-}" = push ] && [ $# -eq 2 ]; then
+  exec skopeo copy --preserve-digests "containers-storage:$2" "docker://$2"
+fi
+
+args=()
+tmp=
+trap '[ -n "$tmp" ] && rm -f "$tmp"' EXIT
+prev=
+for arg in "$@"; do
+  case "$arg" in
+    --provenance | --provenance=* | --sbom | --sbom=*) ;;
+    -)
+      if [ "$prev" = -f ] || [ "$prev" = --file ]; then
+        tmp=$(mktemp)
+        cat > "$tmp"
+        args+=("$tmp")
+      else
+        args+=("$arg")
+      fi
+      ;;
+    *) args+=("$arg") ;;
+  esac
+  prev=$arg
+done
+
+# Not exec: the trap has to run after Podman exits to remove the spooled Dockerfile.
+"${PODMAN:-podman}" "${args[@]}"

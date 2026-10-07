@@ -1,5 +1,8 @@
 {
-	"files.associations": {
-		"wrangler.json": "jsonc"
-	}
+  "files.associations": {
+    "wrangler.json": "jsonc"
+  },
+  "editor.defaultFormatter": "dprint.dprint",
+  "editor.formatOnSave": true,
+  "prettier.enable": false
 }
