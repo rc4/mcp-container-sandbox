@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Kysely } from 'kysely';
 import { openDatabase, type RegistryDatabase, registryMigrations } from './db';
+import { deliverEvents, subscribe, type SubscriptionIdentity, type SubscriptionRequest, unsubscribe } from './events';
 
 export interface SandboxEntry {
   name: string;
@@ -36,6 +37,12 @@ export class SandboxRegistry extends DurableObject<Env> {
 
   async remove(name: string): Promise<void> {
     await this.#db.deleteFrom('sandboxes').where('name', '=', name).execute();
+    const subscriptions = await this.ctx.storage.list<{ id: string; args: { name: string } }>({
+      prefix: 'subscription:',
+    });
+    for (const [key, subscription] of subscriptions) {
+      if (subscription.args.name === name) await this.ctx.storage.delete([key, `verified:${subscription.id}`]);
+    }
   }
 
   async list(): Promise<SandboxEntry[]> {
@@ -46,5 +53,17 @@ export class SandboxRegistry extends DurableObject<Env> {
       instance: row.instance,
       createdAt: row.created_at,
     }));
+  }
+
+  async subscribe(principal: string, request: SubscriptionRequest) {
+    return subscribe(this.ctx, principal, request);
+  }
+
+  async unsubscribe(principal: string, request: SubscriptionIdentity): Promise<void> {
+    await unsubscribe(this.ctx, principal, request);
+  }
+
+  override async alarm(): Promise<void> {
+    await deliverEvents(this.ctx);
   }
 }

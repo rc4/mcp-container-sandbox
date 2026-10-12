@@ -2,6 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "mcp-container-sandbox",
   "main": "src/index.ts",
+  "rules": [
+    { "type": "Text", "globs": ["**/skills/**/*.md", "**/skills/**/*.yaml"], "fallthrough": true }
+  ],
   "compatibility_date": "2026-10-01",
   // @cloudflare/sandbox reads Linux error names through node:os.
   "compatibility_flags": [
@@ -26,6 +29,13 @@
           "dockerfile": "./container/Dockerfile"
         }
       }
+    },
+    {
+      "class_name": "WebhookGateway",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "webhook": { "dockerfile": "./container/webhook.Dockerfile" }
+      }
     }
   ],
   "durable_objects": {
@@ -37,6 +47,10 @@
       {
         "name": "REGISTRY",
         "class_name": "SandboxRegistry"
+      },
+      {
+        "name": "WEBHOOKS",
+        "class_name": "WebhookGateway"
       }
     ]
   },
@@ -46,6 +60,10 @@
       "storage": "sqlite"
     },
     "SandboxRegistry": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "WebhookGateway": {
       "type": "durable-object",
       "storage": "sqlite"
     }

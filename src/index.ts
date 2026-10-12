@@ -4,6 +4,7 @@
  * that wrangler.jsonc binds are re-exported here.
  */
 import { createMcpHandler } from 'agents/mcp/server';
+import { env } from 'cloudflare:workers';
 import { authenticate, parseTokens } from './auth';
 import { handleLink, isLinkRequest } from './links';
 import { createServer } from './mcp';
@@ -12,13 +13,14 @@ export { DirectoryBackupGateway } from '@cloudflare/sandbox';
 export { SandboxRegistry } from './registry';
 export { Sandbox } from './sandbox';
 export { NetworkSinkhole } from './sinkhole';
+export { WebhookGateway } from './webhook-gateway';
 
 export default {
-  async fetch(request, env, ctx): Promise<Response> {
+  async fetch(request): Promise<Response> {
     const url = new URL(request.url);
     if (isLinkRequest(url)) {
       // The signature authenticates the request; no bearer token is involved.
-      return handleLink(request, env);
+      return handleLink(request);
     }
     if (url.pathname !== '/mcp') {
       return new Response(url.pathname === '/' ? 'MCP endpoint: /mcp\n' : 'Not found\n', {
@@ -39,8 +41,8 @@ export default {
     const allowedHostnames = env.ALLOWED_HOSTNAMES.split(',').map((h) => h.trim()).filter(Boolean);
     // An empty list would reject every host; leave it out to keep the localhost/workers.dev default.
     return createMcpHandler(
-      () => createServer(env, principal, url.origin),
+      () => createServer(principal, url.origin),
       allowedHostnames.length > 0 ? { allowedHostnames } : {},
-    )(request, env, ctx);
+    ).fetch(request);
   },
 } satisfies ExportedHandler<Env>;

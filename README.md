@@ -147,12 +147,58 @@ claude mcp add --transport http sandbox https://<worker>.<subdomain>.workers.dev
 If you serve it from a custom domain, add the hostname to `ALLOWED_HOSTNAMES`
 in `wrangler.jsonc`.
 
+## Events and skills
+
+The authenticated `/mcp` endpoint supports MCP 2.0 (`2026-07-28`) discovery
+alongside existing MCP clients. It exposes
+[`sandbox.job.finished`](https://developers.openai.com/plugins/build/mcp-events)
+for background jobs that exit, are killed, or are lost after a container
+restart.
+Subscriptions require a sandbox `name` and optionally a `job_id`. For example,
+ask ChatGPT to monitor a scan job and analyze its output when it finishes.
+Events contain job metadata; retrieve the output with `sandbox_job_status`.
+Commands and logs are excluded from webhook payloads.
+
+The per-principal registry stores subscriptions and pending deliveries durably.
+An alarm checks subscribed jobs every 30 seconds, without starting stopped
+containers. Delivery starts at subscription time and has no protocol replay
+(`cursor: null`). Subscriptions default to 24 hours and are capped at seven
+days; `ttlMs` can request a shorter lifetime. A request for no expiration
+receives the default finite lifetime. Refresh and unsubscribe use the event,
+filters, and callback URL as their identity. Deleting a sandbox removes its
+subscriptions, and removing a principal from `MCP_TOKENS` stops delivery.
+
+Callbacks must use HTTPS on port 443 and resolve to public addresses.
+A dedicated trusted Node.js container validates DNS results at connection time
+and verifies TLS against the callback hostname. It supports IPv4 and native
+global IPv6, and never runs samples or receives signing keys. This avoids the
+Workers TCP restriction on Cloudflare-hosted destinations. The container stops
+after one idle minute and incurs container usage charges while active. The
+sender verifies a signed challenge before activation, caches verification for
+one hour, and signs deliveries using
+Standard Webhooks. Secret rotation signs with both keys for five minutes.
+Requests time out after ten seconds and callback responses are limited to
+16 KiB. Transient failures get up to five attempts with exponential backoff
+starting at 30 seconds. Retries preserve the event ID. Redirects are never
+followed; `410` removes the subscription, and `413` discards the event.
+
+Two bundled skills cover sample triage and sinkhole analysis. They are exposed
+through the
+[MCP skill import extension](https://developers.openai.com/plugins/build/mcp-server#import-skills-from-the-mcp-server):
+`skills/list`, `skills/get`, and `resources/read` provide the complete files and
+SHA-256 digests. The files also live under `skills/` for local use. After
+deploying changes, rescan the MCP server in the plugin portal to update imported
+skills and event definitions. Test a subscription in ChatGPT, trigger a matching
+job,
+confirm delivery, and then stop monitoring to verify unsubscribe.
+
 ## Development
 
 ```sh
 cp .dev.vars.example .dev.vars
 pnpm dev         # wrangler dev; builds the image and runs containers in local Docker
 pnpm test        # vitest in the Workers runtime (no containers needed)
+node test/webhook.node.mjs  # trusted sender tests in Node
 pnpm lint && pnpm format
 ```
 

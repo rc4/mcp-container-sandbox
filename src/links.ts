@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 /**
  * Short-lived signed links that move artifacts between R2 and the outside world directly, without
  * base64 in MCP messages. A link names one R2 object, one method and an expiry, signed with
@@ -40,7 +41,7 @@ export function isLinkRequest(url: URL): boolean {
 }
 
 /** Serves a signed link: GET streams the object out of R2, PUT streams the body into R2. */
-export async function handleLink(request: Request, env: Env): Promise<Response> {
+export async function handleLink(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const method = request.method === 'HEAD' ? 'GET' : request.method;
   if (method !== 'GET' && method !== 'PUT') {

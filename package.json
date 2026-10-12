@@ -1,6 +1,6 @@
 {
   "name": "mcp-container-sandbox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,18 +16,18 @@
   "dependencies": {
     "@cloudflare/sandbox": "^1.0.0",
     "@modelcontextprotocol/server": "2.0.0",
-    "agents": "^0.26.0",
+    "agents": "^0.28.0",
     "kysely": "^0.29.6",
-    "kysely-cloudflare": "^0.1.0",
+    "kysely-cloudflare": "^0.1.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.3.7",
-    "@types/node": "^26.6.4",
-    "dprint": "^0.60.1",
+    "@cloudflare/vitest-plugin": "^1.4.0",
+    "@types/node": "^26.6.5",
+    "dprint": "^0.63.0",
     "oxlint": "^1.87.0",
     "typescript": "^7.0.2",
     "vitest": "~4.1.11",
-    "wrangler": "^4.148.0"
+    "wrangler": "^4.149.0"
   }
 }

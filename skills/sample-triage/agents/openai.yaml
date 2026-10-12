@@ -1,0 +1,5 @@
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "container-sandbox"
+      description: "Linux analysis sandboxes, background jobs, and durable artifacts"

@@ -1,0 +1,5 @@
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "container-sandbox"
+      description: "Isolated execution with local HTTP responses and request logs"
