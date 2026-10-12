@@ -1,0 +1,33 @@
+#!/bin/bash
+# `pnpm run deploy`: wrangler deploy that works with Docker or Podman.
+#
+# Docker is used as is. When `docker` is really Podman (podman-docker shim), or only `podman`
+# is installed, wrangler is pointed at scripts/podman-docker. An explicit WRANGLER_DOCKER_BIN
+# wins over detection.
+set -euo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+if [ -z "${WRANGLER_DOCKER_BIN:-}" ]; then
+  if command -v docker > /dev/null 2>&1; then
+    # Podman's shim identifies itself as "podman version ..."; Docker says "Docker version ...".
+    if docker --version 2> /dev/null | grep -qi podman; then
+      use_podman=1
+    fi
+  elif command -v podman > /dev/null 2>&1; then
+    use_podman=1
+  else
+    echo "deploy: neither docker nor podman found" >&2
+    exit 1
+  fi
+
+  if [ "${use_podman:-}" = 1 ]; then
+    command -v skopeo > /dev/null 2>&1 || {
+      echo "deploy: Podman needs skopeo to push images with their digests intact" >&2
+      exit 1
+    }
+    export WRANGLER_DOCKER_BIN="$here/podman-docker"
+  fi
+fi
+
+exec wrangler deploy "$@"

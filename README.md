@@ -132,7 +132,7 @@ npx wrangler r2 bucket create mcp-container-sandbox
 # Comma-separated principal:token pairs; each principal gets its own sandboxes.
 npx wrangler secret put MCP_TOKENS        # e.g. alice:<openssl rand -hex 32>
 npx wrangler secret put LINK_SIGNING_KEY  # openssl rand -hex 32; signs artifact links
-npx wrangler deploy
+pnpm run deploy
 ```
 
 Clients connect to `https://<worker>.<subdomain>.workers.dev/mcp` with an
@@ -216,11 +216,9 @@ Podman recompresses the layers, so the pushed digest no longer matches the one
 wrangler reports to Cloudflare, and Cloudflare can't find the image.
 `scripts/podman-docker` fixes up the build and pushes with
 `skopeo copy --preserve-digests` instead, so you'll need `skopeo` installed.
-Point wrangler at it:
-
-```sh
-WRANGLER_DOCKER_BIN="$PWD/scripts/podman-docker" pnpm run deploy
-```
+`pnpm run deploy` (`scripts/deploy`) detects Podman, including the `docker`
+shim that Podman installs, and points wrangler at that script for you. Set
+`WRANGLER_DOCKER_BIN` yourself to override the detection.
 
 That's all `deploy` needs. `pnpm dev` is harder, because it also talks to the
 Docker API socket, which Podman provides through `podman system service`.
