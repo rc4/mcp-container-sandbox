@@ -14,20 +14,20 @@
     "lint:fix": "oxlint --fix"
   },
   "dependencies": {
-    "@cloudflare/sandbox": "^1.0.0",
-    "@modelcontextprotocol/server": "2.0.0",
-    "agents": "^0.28.0",
+    "@cloudflare/sandbox": "^1.0.1",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "agents": "^0.28.1",
     "kysely": "^0.29.6",
     "kysely-cloudflare": "^0.1.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.4.0",
+    "@cloudflare/vitest-plugin": "^1.4.2",
     "@types/node": "^26.6.5",
     "dprint": "^0.63.0",
-    "oxlint": "^1.87.0",
+    "oxlint": "^1.88.0",
     "typescript": "^7.0.2",
     "vitest": "~4.1.11",
-    "wrangler": "^4.149.0"
+    "wrangler": "^4.151.0"
   }
 }
