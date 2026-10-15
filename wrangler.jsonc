@@ -6,9 +6,12 @@
     { "type": "Text", "globs": ["**/skills/**/*.md", "**/skills/**/*.yaml"], "fallthrough": true }
   ],
   "compatibility_date": "2026-10-15",
-  // @cloudflare/sandbox reads Linux error names through node:os.
   "compatibility_flags": [
-    "nodejs_compat"
+    // @cloudflare/sandbox reads Linux error names through node:os.
+    "nodejs_compat",
+    // Callback and file_fetch_url requests to this Worker's own zone go through Cloudflare's
+    // front door like any Internet request, instead of straight to the zone's origin.
+    "global_fetch_strictly_public"
   ],
   "observability": {
     "enabled": true
@@ -29,13 +32,6 @@
           "dockerfile": "./container/Dockerfile"
         }
       }
-    },
-    {
-      "class_name": "WebhookGateway",
-      "scheduling_policy": "durable_object",
-      "images": {
-        "webhook": { "dockerfile": "./container/webhook.Dockerfile" }
-      }
     }
   ],
   "durable_objects": {
@@ -47,10 +43,6 @@
       {
         "name": "REGISTRY",
         "class_name": "SandboxRegistry"
-      },
-      {
-        "name": "WEBHOOKS",
-        "class_name": "WebhookGateway"
       }
     ]
   },
@@ -63,9 +55,10 @@
       "type": "durable-object",
       "storage": "sqlite"
     },
+    // No longer exported; deploys delete this class and its storage.
     "WebhookGateway": {
       "type": "durable-object",
-      "storage": "sqlite"
+      "state": "deleted"
     }
   },
   /**

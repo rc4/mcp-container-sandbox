@@ -1,5 +1,4 @@
 import { ProtocolError } from '@modelcontextprotocol/server';
-import { env } from 'cloudflare:workers';
 
 export function callbackUrl(value: string): URL {
   const url = new URL(value);
@@ -28,17 +27,34 @@ export async function signature(secret: string, id: string, timestamp: number, b
   return `v1,${new Uint8Array(signed).toBase64()}`;
 }
 
-/** A trusted container provides DNS-pinned HTTPS, including Cloudflare-hosted callbacks. */
+const MAX_RESPONSE_BYTES = 16_384;
+
+/**
+ * Posts from the Worker. Redirects are returned rather than followed, the whole exchange times out
+ * after ten seconds, and the callback's response body is limited to 16 KiB.
+ */
 export async function postWebhook(url: string, headers: Record<string, string>, body: string): Promise<Response> {
   callbackUrl(url);
-  const result = await env.WEBHOOKS.getByName('delivery').post({ url, headers, body });
-  if ('error' in result) {
-    if (result.error === 'timeout') throw new DOMException('Callback timed out', 'TimeoutError');
-    throw new Error(`Callback delivery failed: ${result.error}`);
-  }
-  return new Response(result.status === 204 || result.status === 205 || result.status === 304 ? null : result.body, {
-    status: result.status,
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body,
+    redirect: 'manual',
+    signal: AbortSignal.timeout(10_000),
   });
+  const received = new Uint8Array(MAX_RESPONSE_BYTES);
+  let size = 0;
+  if (response.body) {
+    for await (const chunk of response.body) {
+      // Leaving the loop cancels the rest of the response.
+      if (size + chunk.byteLength > MAX_RESPONSE_BYTES) {
+        throw new Error('Callback response exceeds 16 KiB');
+      }
+      received.set(chunk, size);
+      size += chunk.byteLength;
+    }
+  }
+  return new Response(size ? received.slice(0, size) : null, { status: response.status });
 }
 
 export async function sendWebhook(

@@ -1,6 +1,6 @@
 {
   "name": "mcp-container-sandbox",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -22,7 +22,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.4.2",
+    "@cloudflare/vitest-plugin": "^1.4.3",
     "@types/node": "^26.6.5",
     "dprint": "^0.63.0",
     "oxlint": "^1.88.0",

@@ -13,7 +13,6 @@ export { DirectoryBackupGateway } from '@cloudflare/sandbox';
 export { SandboxRegistry } from './registry';
 export { Sandbox } from './sandbox';
 export { NetworkSinkhole } from './sinkhole';
-export { WebhookGateway } from './webhook-gateway';
 
 export default {
   async fetch(request): Promise<Response> {

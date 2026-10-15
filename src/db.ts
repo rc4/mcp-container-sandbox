@@ -39,7 +39,12 @@ export interface SandboxDatabase {
     /** JSON-encoded header map. */
     headers: string;
     body_size: number;
+    /** The first bytes of the body, encoded as `body_encoding` says. */
     body_preview: string;
+    /** `utf8` or `base64`. Null in rows written before migration 0003 added it, which are UTF-8. */
+    body_encoding: 'utf8' | 'base64' | null;
+    /** Artifact key of the saved body, for bodies larger than the preview. */
+    body_artifact: string | null;
     /** Status the sinkhole answered with. Null in rows written before migration 0002 added it. */
     response_status: number | null;
     /** Index of the sinkhole rule that matched, or null for the default answer. */
@@ -109,6 +114,16 @@ export const sandboxMigrations: Record<string, Migration> = {
     async up(db) {
       await db.schema.alterTable('network_events').addColumn('response_status', 'integer').execute();
       await db.schema.alterTable('network_events').addColumn('rule', 'integer').execute();
+    },
+  },
+  '0003_binary_body_preview': {
+    async up(db) {
+      await db.schema.alterTable('network_events').addColumn('body_encoding', 'text').execute();
+    },
+  },
+  '0004_body_artifacts': {
+    async up(db) {
+      await db.schema.alterTable('network_events').addColumn('body_artifact', 'text').execute();
     },
   },
 };

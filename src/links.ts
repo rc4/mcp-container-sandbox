@@ -47,7 +47,12 @@ export async function handleLink(request: Request): Promise<Response> {
   if (method !== 'GET' && method !== 'PUT') {
     return new Response('Method not allowed\n', { status: 405, headers: { Allow: 'GET, HEAD, PUT' } });
   }
-  const objectKey = url.pathname.slice(PREFIX.length).split('/').map(decodeURIComponent).join('/');
+  let objectKey: string;
+  try {
+    objectKey = url.pathname.slice(PREFIX.length).split('/').map(decodeURIComponent).join('/');
+  } catch {
+    return new Response('Link is invalid or expired\n', { status: 403 });
+  }
   const expires = Number(url.searchParams.get('expires'));
   const signature = url.searchParams.get('sig') ?? '';
   if (

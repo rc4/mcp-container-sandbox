@@ -123,30 +123,33 @@ fi
 `;
 
 // $1 job dir, $2 timeout seconds, $3 command, $4 cwd. setsid gives the job its own session so
-// that sandbox_job_kill can signal everything it started.
+// that sandbox_job_kill can signal everything it started. The exit file appears whole, via mv.
 const JOB_START_SCRIPT = `
 mkdir -p "$1" && cd "$4" || exit 1
-setsid nohup bash -c 'timeout --kill-after=10 "$1" bash -c "$2"; echo $? > "$3/exit"' _ "$2" "$3" "$1" >"$1/log" 2>&1 </dev/null &
+setsid nohup bash -c 'timeout --kill-after=10 "$1" bash -c "$2"; echo $? > "$3/exit.tmp"; mv "$3/exit.tmp" "$3/exit"' _ "$2" "$3" "$1" >"$1/log" 2>&1 </dev/null &
 echo $! > "$1/pid"
 `;
 
-// $1 job dir, $2 tail bytes.
-const JOB_STATUS_SCRIPT = `
-if [ -f "$1/exit" ]; then echo "exit:$(cat "$1/exit")"
-elif kill -0 "$(cat "$1/pid" 2>/dev/null)" 2>/dev/null; then echo running
-else echo lost; fi
+// Prints a job's state: exit:<code>, running or lost. $1 job dir; $2 is "live" when the job's pid
+// belongs to this instance, since a pid from an earlier instance may now be another process.
+const JOB_STATE_FUNCTION = `
+job_state() {
+  if [ -f "$1/exit" ]; then echo "exit:$(cat "$1/exit")"
+  elif [ "$2" = live ] && kill -0 "$(cat "$1/pid" 2>/dev/null)" 2>/dev/null; then echo running
+  else echo lost; fi
+}
+`;
+
+// $1 job dir, $2 tail bytes, $3 "live" or empty.
+const JOB_STATUS_SCRIPT = `${JOB_STATE_FUNCTION}
+job_state "$1" "$3"
 echo "size:$(stat -c %s "$1/log" 2>/dev/null || echo 0)"
 tail -c "$2" "$1/log" 2>/dev/null
 `;
 
-// $@ job dirs. Prints how many are still running.
-const JOBS_RUNNING_SCRIPT = `
-n=0
-for d in "$@"; do
-  [ -f "$d/exit" ] && continue
-  kill -0 "$(cat "$d/pid" 2>/dev/null)" 2>/dev/null && n=$((n + 1))
-done
-echo $n
+// $@ dirs of jobs started by this instance. Prints one state per line.
+const JOBS_STATE_SCRIPT = `${JOB_STATE_FUNCTION}
+for d in "$@"; do job_state "$d" live; done
 `;
 
 // $1 image reference, or empty when the instance started from a snapshot (which already has one).
@@ -422,26 +425,36 @@ export class Sandbox extends DurableObject<Env> {
     });
   }
 
+  /**
+   * Reads a job's state and the tail of its log. The log survives in snapshots, so reading it
+   * starts a stopped sandbox; a state-only check (`tailBytes` 0) never does.
+   */
   async jobStatus(id: string, tailBytes: number): Promise<{ job: JobInfo; logBytes: number; logTail: string }> {
     return this.#activity(async () => {
-      const job = await this.#job(id);
-      if (!this.#running || !(await this.#jobFromCurrentInstance(job))) {
-        if (job.status === 'running') {
-          await this.#finishJob(id, 'lost', null);
-        }
-        return { job: await this.#job(id), logBytes: 0, logTail: '' };
+      let job = await this.#job(id);
+      const live = this.#running && (await this.#jobFromCurrentInstance(job));
+      // The alarm records the exit of every job before it stops an idle sandbox, so a job still
+      // marked running in an earlier instance was cut off.
+      if (job.status === 'running' && !live) {
+        await this.#finishJob(id, 'lost', null);
+        job = await this.#job(id);
+      }
+      if (!this.#running && tailBytes === 0) {
+        return { job, logBytes: 0, logTail: '' };
       }
       await this.#ensureRunning();
-      const result = await this.#run(['bash', '-c', JOB_STATUS_SCRIPT, '_', `${JOBS_DIR}/${id}`, String(tailBytes)], {
-        limit: tailBytes + 256,
-      });
+      const result = await this.#run([
+        'bash',
+        '-c',
+        JOB_STATUS_SCRIPT,
+        '_',
+        `${JOBS_DIR}/${id}`,
+        String(tailBytes),
+        live ? 'live' : '',
+      ], { limit: tailBytes + 256 });
       const [state = '', size = '', ...rest] = result.stdout.text.split('\n');
       if (job.status === 'running') {
-        if (state.startsWith('exit:')) {
-          await this.#finishJob(id, 'exited', Number(state.slice(5)));
-        } else if (state === 'lost') {
-          await this.#finishJob(id, 'lost', null);
-        }
+        await this.#recordJobState(id, state);
       }
       return { job: await this.#job(id), logBytes: Number(size.slice(5)) || 0, logTail: rest.join('\n') };
     });
@@ -501,7 +514,10 @@ export class Sandbox extends DurableObject<Env> {
         'status=none',
       ], { cwd: WORKSPACE, env: EXEC_ENV, stderr: 'ignore' });
       // dd stops after `count` bytes, which bounds what this reads into memory.
-      const [bytes] = await Promise.all([new Response(process.stdout).bytes(), process.exitCode]);
+      const [bytes, exitCode] = await Promise.all([new Response(process.stdout).bytes(), process.exitCode]);
+      if (exitCode !== 0) {
+        throw new Error(`Could not read ${path} (dd exited with ${exitCode})`);
+      }
       return { bytes, size: Number(stat.size) };
     });
   }
@@ -591,6 +607,8 @@ export class Sandbox extends DurableObject<Env> {
             '-bso0',
             '-bsp0',
             ...(zip?.password ? [`-p${zip.password}`] : []),
+            // A name that starts with '-' would otherwise be read as a switch.
+            '--',
             source,
             posix.basename(absolute),
           ], posix.dirname(absolute));
@@ -637,7 +655,7 @@ export class Sandbox extends DurableObject<Env> {
         await this.#files.mkdir(path, { recursive: true, cwd: WORKSPACE });
         // Always pass -p so an encrypted archive without a password fails instead of prompting.
         await this.#runChecked(
-          ['7z', 'x', '-y', '-bso0', '-bsp0', `-p${extract.password ?? ''}`, `-o${path}`, archive],
+          ['7z', 'x', '-y', '-bso0', '-bsp0', `-p${extract.password ?? ''}`, `-o${path}`, '--', archive],
           WORKSPACE,
         );
         return { key, path, size: object.size, extracted: true };
@@ -780,6 +798,8 @@ export class Sandbox extends DurableObject<Env> {
           headers: JSON.stringify(event.headers),
           body_size: event.bodySize,
           body_preview: event.bodyPreview,
+          body_encoding: event.bodyEncoding,
+          body_artifact: event.bodyArtifact,
           response_status: responseStatus,
           rule,
         }).compile(),
@@ -804,6 +824,8 @@ export class Sandbox extends DurableObject<Env> {
       headers: JSON.parse(row.headers) as Record<string, string>,
       bodySize: row.body_size,
       bodyPreview: row.body_preview,
+      bodyEncoding: row.body_encoding ?? 'utf8',
+      bodyArtifact: row.body_artifact,
       response: row.response_status === null ? null : { status: row.response_status, rule: row.rule },
     }));
   }
@@ -818,7 +840,7 @@ export class Sandbox extends DurableObject<Env> {
     }
     const lastActivity = (await this.ctx.storage.get<number>('lastActivity')) ?? 0;
     const savedAt = (await this.ctx.storage.get<number>('savedAt')) ?? 0;
-    const jobsRunning = await this.#runningJobCount();
+    const jobsRunning = await this.#reconcileJobs();
     const now = Date.now();
     const idle = this.#busy === 0 && jobsRunning === 0 && now - lastActivity > IDLE_LIMIT_MS;
     const checkpoint = this.#busy === 0 && lastActivity > savedAt && now - savedAt > CHECKPOINT_INTERVAL_MS;
@@ -955,7 +977,9 @@ export class Sandbox extends DurableObject<Env> {
     // The backup route must be registered before the sinkhole catch-all, or the catch-all takes it.
     await this.#backupsStore(config).intercept();
     if (config.network === 'sinkhole') {
-      const sinkhole = this.ctx.exports.NetworkSinkhole({ props: { sandboxId: this.ctx.id.toString() } });
+      const sinkhole = this.ctx.exports.NetworkSinkhole({
+        props: { sandboxId: this.ctx.id.toString(), owner: { principal: config.principal, name: config.name } },
+      });
       await container.interceptAllOutboundHttp(sinkhole);
       await container.interceptOutboundHttps('*', sinkhole);
     }
@@ -1160,19 +1184,54 @@ export class Sandbox extends DurableObject<Env> {
     await this.ctx.storage.deleteAlarm();
   }
 
-  async #runningJobCount(): Promise<number> {
-    const running = (await this.#jobRows()).filter((job) => job.status === 'running');
-    if (running.length === 0) {
+  /**
+   * Records the exit of every job that has finished since it was last checked, so a sandbox that
+   * stops afterwards still reports how its jobs ended.
+   * @returns How many jobs are still running.
+   */
+  async #reconcileJobs(): Promise<number> {
+    const live: JobInfo[] = [];
+    for (const job of await this.#jobRows()) {
+      if (job.status !== 'running') {
+        continue;
+      }
+      if (await this.#jobFromCurrentInstance(job)) {
+        live.push(job);
+      } else {
+        await this.#finishJob(job.id, 'lost', null);
+      }
+    }
+    if (live.length === 0) {
       return 0;
     }
     const result = await this.#run([
       'bash',
       '-c',
-      JOBS_RUNNING_SCRIPT,
+      JOBS_STATE_SCRIPT,
       '_',
-      ...running.map((j) => `${JOBS_DIR}/${j.id}`),
-    ], { limit: 256 });
-    return Number(result.stdout.text.trim()) || 0;
+      ...live.map((j) => `${JOBS_DIR}/${j.id}`),
+    ], { limit: 64 * live.length + 256 });
+    const states = result.stdout.text.split('\n');
+    let running = 0;
+    for (const [index, job] of live.entries()) {
+      const state = states[index] ?? '';
+      if (state === 'running') {
+        running++;
+      } else {
+        await this.#recordJobState(job.id, state);
+      }
+    }
+    return running;
+  }
+
+  /** Applies a state printed by job_state to a job that is marked running. */
+  async #recordJobState(id: string, state: string): Promise<void> {
+    if (state.startsWith('exit:')) {
+      const code = Number.parseInt(state.slice(5), 10);
+      await this.#finishJob(id, 'exited', Number.isNaN(code) ? null : code);
+    } else if (state === 'lost') {
+      await this.#finishJob(id, 'lost', null);
+    }
   }
 
   async #jobFromCurrentInstance(job: JobInfo): Promise<boolean> {

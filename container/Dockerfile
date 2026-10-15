@@ -55,12 +55,12 @@ EOF
 
 # --- Final image.
 FROM --platform=linux/amd64 debian:trixie-slim
-ARG IMAGE_VERSION=2026.10.07
+ARG IMAGE_VERSION=2026.10.15
 LABEL org.opencontainers.image.version=$IMAGE_VERSION
 
 # Helper binary used by @cloudflare/sandbox (Files, DirectoryBackup). The tag must match the
 # installed @cloudflare/sandbox version in package.json.
-COPY --from=docker.io/cloudflare/sandbox:1.0.0 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
+COPY --from=docker.io/cloudflare/sandbox:1.0.1 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8

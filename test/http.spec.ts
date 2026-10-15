@@ -5,8 +5,11 @@ import { createLink } from '../src/links';
 /** Matches MCP_TOKENS in vitest.config.mts. */
 const TOKEN = 'test-token-0123456789abcdef';
 
-const rpc = (body: unknown, token = TOKEN) =>
-  exports.default.fetch('http://localhost/mcp', {
+const rpc = (body: { method: string; params?: Record<string, unknown> } & Record<string, unknown>, token = TOKEN) => {
+  // 2026-07-28 requests must mirror the body's protocol version in a header, as real clients do.
+  const meta = body.params?.['_meta'] as Record<string, unknown> | undefined;
+  const version = meta?.['io.modelcontextprotocol/protocolVersion'];
+  return exports.default.fetch('http://localhost/mcp', {
     method: 'POST',
     headers: {
       // The MCP handler's DNS-rebinding check needs a Host header, which real clients always send.
@@ -14,10 +17,12 @@ const rpc = (body: unknown, token = TOKEN) =>
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/event-stream',
-      'Mcp-Method': (body as { method: string }).method,
+      'Mcp-Method': body.method,
+      ...(typeof version === 'string' && { 'MCP-Protocol-Version': version }),
     },
     body: JSON.stringify(body),
   });
+};
 
 /** Reads the JSON-RPC message from a JSON or single-event SSE response body. */
 const parseSse = (body: string) => JSON.parse(body.startsWith('{') ? body : body.split('\ndata: ')[1]!.split('\n')[0]!);

@@ -238,7 +238,8 @@ export function createServer(principal: string, origin: string): McpServer {
     'sandbox_job_status',
     {
       title: 'Job status',
-      description: "Show a job's state and the tail of its log (stdout and stderr combined).",
+      description:
+        "Show a job's state and the tail of its log (stdout and stderr combined). The log is still readable after the sandbox has stopped.",
       inputSchema: z.object({
         name: SANDBOX_NAME,
         job_id: z.string(),
@@ -288,7 +289,8 @@ export function createServer(principal: string, origin: string): McpServer {
     'file_write',
     {
       title: 'Write file',
-      description: 'Write a file into the sandbox, creating parent directories. Returns size and SHA-256.',
+      description:
+        'Write a file you author (script, rule, config) into the sandbox, creating parent directories. Returns size and SHA-256. Bring samples in with file_fetch_url, or artifact_upload_url for files on your machine.',
       inputSchema: z.object({
         name: SANDBOX_NAME,
         path: PATH,
@@ -549,7 +551,7 @@ export function createServer(principal: string, origin: string): McpServer {
     {
       title: 'Network log',
       description:
-        'HTTP and HTTPS requests the sandbox made in sinkhole mode: method, URL, headers, the start of the body, and the status and sinkhole rule it was answered with. Page with after_seq.',
+        'HTTP and HTTPS requests the sandbox made in sinkhole mode: method, URL, headers, the first 4 KiB of the body (base64 when binary, see bodyEncoding), bodyArtifact (the artifact key holding a body larger than 4 KiB, up to 64 MiB; use artifact_import or artifact_download_url), and the status and sinkhole rule it was answered with. Page with after_seq.',
       inputSchema: z.object({
         name: SANDBOX_NAME,
         after_seq: z.number().int().min(0).default(0),

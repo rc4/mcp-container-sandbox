@@ -42,7 +42,10 @@ sandboxes.
 
 In sinkhole mode, the container's outbound HTTP and HTTPS go to
 `NetworkSinkhole`, which asks the sandbox's Durable Object to log the request
-and pick the answer. R2 holds directory backups under
+and pick the answer. The log keeps the first 4 KiB of each request body; a
+larger body, such as a stealer's upload, is also saved as an artifact under
+`sinkhole/<name>/` (up to 64 MiB). These artifacts stay until you delete them,
+like any other. R2 holds directory backups under
 `backups/<principal>/<name>/` and artifacts under `artifacts/<principal>/`.
 
 | File                   | Purpose                                                                                                             |
@@ -168,17 +171,14 @@ receives the default finite lifetime. Refresh and unsubscribe use the event,
 filters, and callback URL as their identity. Deleting a sandbox removes its
 subscriptions, and removing a principal from `MCP_TOKENS` stops delivery.
 
-Callbacks must use HTTPS on port 443 and resolve to public addresses.
-A dedicated trusted Node.js container validates DNS results at connection time
-and verifies TLS against the callback hostname. It supports IPv4 and native
-global IPv6, and never runs samples or receives signing keys. This avoids the
-Workers TCP restriction on Cloudflare-hosted destinations. The container stops
-after one idle minute and incurs container usage charges while active. The
-sender verifies a signed challenge before activation, caches verification for
-one hour, and signs deliveries using
-Standard Webhooks. Secret rotation signs with both keys for five minutes.
-Requests time out after ten seconds and callback responses are limited to
-16 KiB. Transient failures get up to five attempts with exponential backoff
+Callbacks must use HTTPS on port 443. The Worker sends them with `fetch()`,
+which reaches only the public Internet; requests to the Worker's own zone go
+through Cloudflare like any other client's. Signing keys never reach a sandbox.
+The sender verifies a signed challenge before activation, caches verification
+for one hour, and signs deliveries using Standard Webhooks. Secret rotation
+signs with both keys for five minutes. Requests time out after ten seconds and
+callback responses are limited to 16 KiB. Transient failures get up to five
+attempts with exponential backoff
 starting at 30 seconds. Retries preserve the event ID. Redirects are never
 followed; `410` removes the subscription, and `413` discards the event.
 
@@ -198,7 +198,6 @@ confirm delivery, and then stop monitoring to verify unsubscribe.
 cp .dev.vars.example .dev.vars
 pnpm dev         # wrangler dev; builds the image and runs containers in local Docker
 pnpm test        # vitest in the Workers runtime (no containers needed)
-node test/webhook.node.mjs  # trusted sender tests in Node
 pnpm lint && pnpm format
 ```
 
