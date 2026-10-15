@@ -5,7 +5,7 @@
   "rules": [
     { "type": "Text", "globs": ["**/skills/**/*.md", "**/skills/**/*.yaml"], "fallthrough": true }
   ],
-  "compatibility_date": "2026-10-01",
+  "compatibility_date": "2026-10-15",
   // @cloudflare/sandbox reads Linux error names through node:os.
   "compatibility_flags": [
     "nodejs_compat"
